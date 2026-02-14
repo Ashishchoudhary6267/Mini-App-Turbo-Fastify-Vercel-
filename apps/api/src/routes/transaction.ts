@@ -1,7 +1,7 @@
 import { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { TransactionSchema, Transaction } from '@repo/shared/dist/index'; // Import from dist in monorepo if using compiled
+import { TransactionSchema, Transaction } from '@repo/shared';
 // Or if using tsx/ts-node, straight from source might work if configured, but dist is safer for standard node
 // Wait, in dev mode with tsx we can import from source if we use workspaces correctly or if we just rely on node resolution
 // But commonly in turbo with simple setup, we use the "main" from package.json which points to src/index.ts if we set it so for dev?
