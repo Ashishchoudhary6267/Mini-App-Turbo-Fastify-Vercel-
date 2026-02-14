@@ -51,7 +51,8 @@ export function TransactionForm(): JSX.Element {
       const encrypted = await encryptData(data);
       setEncryptedPayload(encrypted);
 
-      const response = await fetch(process.env.NEXT_PUBLIC_API_URL + '/transaction', {
+      const apiUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001").replace(/\/$/, "");
+      const response = await fetch(`${apiUrl}/transaction`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
