@@ -1,11 +1,7 @@
-import { FastifyInstance } from 'fastify';
+import { IncomingMessage, ServerResponse } from 'http';
 import { z } from 'zod';
 import crypto from 'crypto';
-import { TransactionSchema, Transaction } from '@repo/shared';
-// Or if using tsx/ts-node, straight from source might work if configured, but dist is safer for standard node
-// Wait, in dev mode with tsx we can import from source if we use workspaces correctly or if we just rely on node resolution
-// But commonly in turbo with simple setup, we use the "main" from package.json which points to src/index.ts if we set it so for dev?
-// Actually my package.json for shared says main: src/index.ts. So this should work with tsx.
+import { Transaction, TransactionSchema } from '@repo/shared';
 import { encrypt, decrypt } from '../encryption';
 
 // In-memory storage
@@ -16,45 +12,77 @@ const EncryptedBodySchema = z.object({
     data: z.string(),
 });
 
-export async function transactionRoutes(fastify: FastifyInstance) {
-    fastify.post('/transaction', async (request, reply) => {
-        try {
-            // 1. Validate that body has 'data' field
-            const body = EncryptedBodySchema.parse(request.body);
-
-            // 2. Decrypt
-            const decryptedData = decrypt(body.data);
-
-            // 3. Validate the actual transaction data
-            const transactionData = TransactionSchema.parse(decryptedData);
-
-            // 4. Store (Generate ID if not present)
-            const newTransaction: Transaction = {
-                ...transactionData,
-                id: transactionData.id || crypto.randomUUID(),
-                timestamp: new Date().toISOString(),
-            };
-
-            transactions.push(newTransaction);
-
-            fastify.log.info({ msg: 'Transaction stored', id: newTransaction.id });
-
-            return { success: true, id: newTransaction.id };
-        } catch (error) {
-            if (error instanceof z.ZodError) {
-                reply.status(400).send({ error: 'Validation Error', details: error.errors });
-            } else if (error instanceof Error) {
-                reply.status(400).send({ error: error.message }); // Could be decryption error
-            } else {
-                reply.status(500).send({ error: 'Internal Server Error' });
+// Helper to parse request body
+function parseBody(req: IncomingMessage): Promise<any> {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => body += chunk.toString());
+        req.on('end', () => {
+            try {
+                resolve(JSON.parse(body));
+            } catch (error) {
+                reject(new Error('Invalid JSON'));
             }
-        }
+        });
+        req.on('error', reject);
     });
+}
 
-    fastify.get('/transactions', async (request, reply) => {
-        // Return plain list for debugging/viewing, or encrypted if required. 
-        // Requirement says: "Display transaction status/results".
-        // Let's return them plain for the secure-admin-like view
-        return { transactions };
-    });
+// Handle root route
+export async function handleRoot(req: IncomingMessage, res: ServerResponse) {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ status: 'ok', service: 'Transaction API' }));
+}
+
+// Handle POST /transaction
+export async function handleTransaction(req: IncomingMessage, res: ServerResponse) {
+    try {
+        const body = await parseBody(req);
+
+        // 1. Validate that body has 'data' field
+        const { data } = EncryptedBodySchema.parse(body);
+
+        // 2. Decrypt
+        const decryptedData = decrypt(data);
+
+        // 3. Validate the actual transaction data
+        const transactionData = TransactionSchema.parse(decryptedData);
+
+        // 4. Store (Generate ID if not present)
+        const newTransaction: Transaction = {
+            ...transactionData,
+            id: transactionData.id || crypto.randomUUID(),
+            timestamp: new Date().toISOString(),
+        };
+
+        transactions.push(newTransaction);
+
+        console.log('Transaction stored:', newTransaction.id);
+
+        res.statusCode = 200;
+        res.setHeader('Content-Type', 'application/json');
+        res.end(JSON.stringify({ success: true, id: newTransaction.id }));
+    } catch (error) {
+        if (error instanceof z.ZodError) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Validation Error', details: error.errors }));
+        } else if (error instanceof Error) {
+            res.statusCode = 400;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: error.message }));
+        } else {
+            res.statusCode = 500;
+            res.setHeader('Content-Type', 'application/json');
+            res.end(JSON.stringify({ error: 'Internal Server Error' }));
+        }
+    }
+}
+
+// Handle GET /transactions
+export async function handleTransactions(req: IncomingMessage, res: ServerResponse) {
+    res.statusCode = 200;
+    res.setHeader('Content-Type', 'application/json');
+    res.end(JSON.stringify({ transactions }));
 }
